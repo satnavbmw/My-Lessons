@@ -10,48 +10,53 @@ import random
 
 # --- FINAL PDF ENGINE: OPTION 1 (ARCHITECT LOOK) ---
 class ShoppingPDF(FPDF):
-    def create_shopping_list(self, list_name, user_name, items, total_val, save_path, show_prices):
-        while True:
+    def create_shopping_list(self, list_name, user_name, items, total_val, save_path, show_prices, currency="£"):
+        # Try to write the full PDF using a fresh PDF instance to avoid mutating internals on PermissionError
+        max_retries = 3
+        for attempt in range(max_retries):
+            pdf = ShoppingPDF()
             try:
-                self.add_page()
-                
+                pdf.add_page()
+
                 # --- OPTION 1 HEADER: THE ARCHITECT ---
                 display_name = (list_name if list_name else "SHOPPING LIST").upper()
-                
+
                 # Top Thick Line
-                self.set_draw_color(40, 40, 40)
-                self.set_line_width(0.8)
-                self.line(10, 15, 200, 15)
-                
+                pdf.set_draw_color(40, 40, 40)
+                pdf.set_line_width(0.8)
+                pdf.line(10, 15, 200, 15)
+
                 # Title Text
-                self.ln(7)
-                self.set_text_color(40, 40, 40)
-                self.set_font("Helvetica", style='B', size=18)
-                self.cell(0, 10, txt=display_name, ln=True, align='C')
-                
+                pdf.ln(7)
+                pdf.set_text_color(40, 40, 40)
+                pdf.set_font("Helvetica", style='B', size=18)
+                pdf.cell(0, 10, txt=display_name, ln=True, align='C')
+
                 # Bottom Thin Line
-                self.set_line_width(0.2)
-                self.line(10, self.get_y() + 1, 200, self.get_y() + 1)
-                
+                pdf.set_line_width(0.2)
+                pdf.line(10, pdf.get_y() + 1, 200, pdf.get_y() + 1)
+
                 # User and Date Info
-                self.set_font("Helvetica", size=9)
-                self.set_text_color(100, 100, 100)
+                pdf.set_font("Helvetica", size=9)
+                pdf.set_text_color(100, 100, 100)
                 now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                self.ln(3)
-                self.cell(0, 5, txt=f"FOR: {user_name} | DATE: {now}", ln=True, align='C')
-                self.ln(8)
+                pdf.ln(3)
+                pdf.cell(0, 5, txt=f"FOR: {user_name} | DATE: {now}", ln=True, align='C')
+                pdf.ln(8)
 
                 count = len(items)
-                if count == 0: return False
-                
-                # VERIFIED V2.8 LOGIC: Columns trigger at 28 items
-                page_height_limit = 260 
+                if count == 0:
+                    return False
+
+                # Layout control
+                page_bottom = 275
+                page_height_limit = 260
                 use_columns = True if count > 28 else False
                 items_per_col = (count // 2) + (count % 2) if use_columns else count
-                
-                available_h = page_height_limit - self.get_y() - 20
+
+                available_h = page_height_limit - pdf.get_y() - 20
                 calc_lh = available_h / items_per_col
-                
+
                 if use_columns:
                     f_size = max(10, min(13, calc_lh * 2.1))
                     line_h = max(5.5, min(9, calc_lh))
@@ -61,72 +66,78 @@ class ShoppingPDF(FPDF):
                     line_h = max(7, min(14, calc_lh))
                     col_w = 190
 
-                # VERIFIED V2.8 LOGIC: Currency Encoding
-                symbol_txt = chr(163).encode('latin-1', 'replace').decode('latin-1')
-                symbol_w = self.get_string_width(symbol_txt)
-                
-                start_y = self.get_y()
-                self.set_text_color(40, 40, 40)
-                
+                # Currency symbol (safe for latin-1)
+                symbol_txt = currency.encode('latin-1', 'replace').decode('latin-1')
+
+                start_y = pdf.get_y()
+                pdf.set_text_color(40, 40, 40)
+
                 for i, (name, price) in enumerate(items):
                     if use_columns and i == items_per_col:
-                        self.set_xy(110, start_y)
-                    
-                    if self.get_y() > 275:
-                        self.add_page()
+                        pdf.set_xy(110, start_y)
+
+                    if pdf.get_y() > page_bottom:
+                        pdf.add_page()
                         start_y = 20
-                        self.set_y(start_y)
+                        pdf.set_y(start_y)
 
                     # Tick Box
-                    curr_x = self.get_x()
-                    curr_y = self.get_y()
-                    self.set_draw_color(160, 160, 160)
-                    self.set_line_width(0.2)
-                    self.rect(curr_x, curr_y + (line_h/4), 3.5, 3.5) 
-                    
+                    curr_x = pdf.get_x()
+                    curr_y = pdf.get_y()
+                    pdf.set_draw_color(160, 160, 160)
+                    pdf.set_line_width(0.2)
+                    pdf.rect(curr_x, curr_y + (line_h/4), 3.5, 3.5) 
+
                     # Item Text
-                    self.set_x(curr_x + 6)
-                    self.set_font("Helvetica", size=f_size)
+                    pdf.set_x(curr_x + 6)
+                    pdf.set_font("Helvetica", size=f_size)
                     safe_name = name.encode('latin-1', 'replace').decode('latin-1')
                     item_display = f"> {safe_name}"
-                    
+
                     if show_prices and price > 0:
-                        self.cell(col_w - 28, line_h, txt=item_display)
-                        self.set_font("Helvetica", style='B', size=f_size)
-                        self.cell(symbol_w + 3, line_h, txt=symbol_txt)
-                        self.cell(15, line_h, txt=f"{price:.2f}", ln=True, align='R')
+                        # Ensure symbol width is measured with the same font/size used for the price
+                        pdf.cell(col_w - 28, line_h, txt=item_display)
+                        pdf.set_font("Helvetica", style='B', size=f_size)
+                        symbol_w = pdf.get_string_width(symbol_txt)
+                        pdf.cell(symbol_w + 3, line_h, txt=symbol_txt)
+                        pdf.cell(15, line_h, txt=f"{price:.2f}", ln=True, align='R')
                     else:
-                        self.cell(col_w - 6, line_h, txt=item_display, ln=True)
-                    
-                    self.set_x(110 if use_columns and i >= items_per_col else 10)
+                        pdf.cell(col_w - 6, line_h, txt=item_display, ln=True)
+
+                    pdf.set_x(110 if use_columns and i >= items_per_col else 10)
 
                 # Footer
-                if self.get_y() > 250: self.add_page()
-                else: self.ln(5)
+                if pdf.get_y() > (page_bottom - 20):
+                    pdf.add_page()
+                else:
+                    pdf.ln(5)
 
-                self.set_draw_color(200, 200, 200)
-                self.line(10, self.get_y(), 200, self.get_y())
-                self.ln(2)
-                self.set_font("Helvetica", style='B', size=12)
-                self.cell(100, 10, txt=f"TOTAL ITEMS: {len(items)}")
-                
+                pdf.set_draw_color(200, 200, 200)
+                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                pdf.ln(2)
+                pdf.set_font("Helvetica", style='B', size=12)
+                pdf.cell(100, 10, txt=f"TOTAL ITEMS: {len(items)}")
+
                 if show_prices and total_val > 0:
-                    self.set_x(150)
+                    pdf.set_x(150)
                     total_str = f"TOTAL: {symbol_txt}{total_val:.2f}"
-                    self.cell(50, 10, txt=total_str, ln=True, align='R')
-                
-                self.output(save_path)
+                    pdf.cell(50, 10, txt=total_str, ln=True, align='R')
+
+                pdf.output(save_path)
                 print(f"\n✅ File saved successfully to: {os.path.basename(save_path)}")
                 return True
 
             except PermissionError:
+                # Do not mutate internal pdf state; ask user to close file and retry
                 print(f"\n⚠️  ERROR: File open. Close PDF and press Enter.")
                 input("Press Enter to retry...")
-                self.pages = {}; self.page = 0 
-                continue 
+                continue
             except Exception as e:
                 print(f"PDF Error: {e}")
                 return False
+
+        print("Failed to save PDF after multiple attempts.")
+        return False
 
 # --- UTILITIES (REMAINING CODE VERIFIED UNTOUCHED FROM V2.8) ---
 def clear():
@@ -206,9 +217,10 @@ while True:
                         if line.startswith("NAME:"):
                             list_name = line.replace("NAME:", "").strip().upper()
                         if line.startswith(">"):
-                            match = re.search(r">\s*(.+?)(?:\s+[. ]*\s*£?\s*(\d+\.\d{2}))?$", line)
+                            # Flexible price parsing: accept integers or 1-2 decimal places, optional currency sign
+                            match = re.search(r">\s*(.+?)(?:\s+[. ]*\s*£?\s*(\d+(?:\.\d{1,2})?))?$", line)
                             if match:
-                                item_name = match.group(1).strip()
+                                item_name = match.group(1).strip().upper()
                                 item_price = float(match.group(2)) if match.group(2) else 0.0
                                 foods.append(item_name); prices.append(item_price); total += item_price
                 if not list_name: list_name = f"{user_name.upper()}'S IMPORTED LIST"
@@ -287,7 +299,7 @@ while not shopping_finished:
                     idx = int(idx_in) - 1
                     if 0 <= idx < len(foods):
                         old_p, full_n = prices[idx], foods[idx]
-                        qty_match = re.search(r'^(\d+)[Xx]\s+(.+)', full_n)
+                        qty_match = re.search(r'^(\\d+)[Xx]\s+(.+)', full_n)
                         c_qty, c_name = (int(qty_match.group(1)), qty_match.group(2)) if qty_match else (1, full_n)
                         n_qty = int(input(f"New qty ({c_qty}): ") or c_qty)
                         n_name = input(f"New name ({c_name}): ").strip().upper() or c_name
@@ -308,7 +320,7 @@ while not shopping_finished:
             new_qty = 1
             processed_name = entry_raw.strip().upper()
 
-            start_m = re.search(r'^(\d+)\s*[Xx]?\s*(.*)', processed_name)
+            start_m = re.search(r'^\d+\s*[Xx]?\s*(.*)', processed_name)
             if start_m and start_m.group(2):
                 new_qty = int(start_m.group(1))
                 processed_name = start_m.group(2).strip()
@@ -323,12 +335,12 @@ while not shopping_finished:
                 for i, f in enumerate(foods):
                     if processed_name == re.sub(r'^\d+[Xx]\s+', '', f).upper():
                         duplicate_idx = i; break
-                
+                    
                 if duplicate_idx != -1:
                     print(f"\n⚠️ {processed_name} is already in the list.")
                     if input("Combine with existing? (y/n): ").lower().strip() == 'y':
                         old_f = foods[duplicate_idx]
-                        old_qty_m = re.search(r'^(\d+)[Xx]\s+', old_f)
+                        old_qty_m = re.search(r'^\d+[Xx]\s+', old_f)
                         old_qty = int(old_qty_m.group(1)) if old_qty_m else 1
                         combined_qty = old_qty + new_qty
                         item_total = 0.0
@@ -363,12 +375,13 @@ if foods:
         root.destroy()
         if f_path:
             pdf = ShoppingPDF()
-            if pdf.create_shopping_list(list_name, user_name, list(zip(foods, prices)), total, f_path, use_prices):
+            # pass the same currency used in console to the PDF generator
+            if pdf.create_shopping_list(list_name, user_name, list(zip(foods, prices)), total, f_path, use_prices, currency):
                 time.sleep(0.5) 
                 txt_path = os.path.splitext(f_path)[0] + ".txt"
                 with open(txt_path, "w", encoding="utf-8", errors='replace') as tf:
                     tf.write(f"NAME: {list_name}\n")
-                    for f, p in zip(foods, prices): tf.write(f"> {f} ... £ {p:.2f}\n")
+                    for f, p in zip(foods, prices): tf.write(f"> {f} ... {currency} {p:.2f}\n")
                 if input("\nPrint? (y/n): ").lower().strip() == 'y':
                     try: 
                         os.startfile(f_path, "print")
